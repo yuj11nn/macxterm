@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage(Prefs.fontSize) private var fontSize = 13.0
     @AppStorage(Prefs.copyOnSelect) private var copyOnSelect = false
     @AppStorage(Prefs.pasteOnRightClick) private var pasteOnRightClick = false
+    @AppStorage(Prefs.statsEnabledKey) private var statsEnabled = true
 
     var body: some View {
         @Bindable var app = app
@@ -27,7 +28,7 @@ struct ContentView: View {
                         EmptyStateView()
                     }
                 }
-                StatusBar(tab: app.activeTab)
+                StatsBar(tab: app.activeTab)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -44,6 +45,7 @@ struct ContentView: View {
         .onChange(of: fontSize) { app.applyTerminalSettings() }
         .onChange(of: copyOnSelect) { app.applyTerminalSettings() }
         .onChange(of: pasteOnRightClick) { app.applyTerminalSettings() }
+        .onChange(of: statsEnabled) { app.applyStatsSettings() }
         .onChange(of: app.activeTabID) { app.activeTab?.focus() }
     }
 }
@@ -85,33 +87,5 @@ private struct EmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
-    }
-}
-
-/// Нижняя строка состояния (метрики сервера появятся на этапе 3).
-struct StatusBar: View {
-    let tab: TerminalSession?
-    var body: some View {
-        HStack(spacing: 8) {
-            if let tab {
-                Circle().fill(color(tab.state)).frame(width: 7, height: 7)
-                Text(tab.session.destination + (tab.session.port != 22 ? ":\(tab.session.port)" : ""))
-                    .font(.system(size: 11, design: .monospaced))
-                Text(label(tab.state)).font(.system(size: 11)).foregroundStyle(.secondary)
-            } else {
-                Text("Не подключено").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 24)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
-    }
-    private func color(_ s: ConnectionState) -> Color {
-        switch s { case .connected: .green; case .connecting: .yellow; case .disconnected: .red }
-    }
-    private func label(_ s: ConnectionState) -> String {
-        switch s { case .connected: "подключено"; case .connecting: "подключение…"; case .disconnected: "отключено" }
     }
 }

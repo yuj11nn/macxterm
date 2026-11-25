@@ -9,11 +9,14 @@ enum ConnectionState: Sendable { case connecting, connected, disconnected }
 final class TerminalSession: Identifiable {
     let id = UUID()
     private(set) var session: Session
-    var state: ConnectionState = .connecting
+    var state: ConnectionState = .connecting { didSet { if oldValue != state { updateStats() } } }
+    /// Вкладка выбрана в окне — только для неё работает монитор сервера.
+    var isActiveTab = false { didSet { if oldValue != isActiveTab { updateStats() } } }
     var title: String
     var exitCode: Int32?
     @ObservationIgnored let view: MXTerminalView
     let fs: RemoteFS
+    let stats: StatsPoller
     @ObservationIgnored private var masterTask: Task<Void, Never>?
     @ObservationIgnored private var osc7Installed = false
     @ObservationIgnored var onConnected: (() -> Void)?
@@ -23,6 +26,7 @@ final class TerminalSession: Identifiable {
         self.title = session.displayName
         self.view = MXTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
         self.fs = RemoteFS(session: session)
+        self.stats = StatsPoller(session: session)
         view.owner = self
         view.processDelegate = self
         fs.terminal = self
@@ -61,6 +65,7 @@ final class TerminalSession: Identifiable {
     /// Закрывает процесс; мастер гасим, только если его больше никто не использует.
     func close(masterStillUsed: Bool) {
         masterTask?.cancel()
+        stats.stop()
         fs.shutdown()
         if state != .disconnected { view.terminate() }
         view.teardown()
@@ -68,6 +73,21 @@ final class TerminalSession: Identifiable {
     }
 
     func send(_ text: String) { view.send(txt: text) }
+
+    /// Монитор работает только пока вкладка активна и подключена; новое подключение сбрасывает историю.
+    func updateStats() {
+        switch state {
+        case .connecting: stats.reset()
+        case .connected: isActiveTab ? stats.start() : stats.stop()
+        case .disconnected: stats.stop()
+        }
+    }
+
+    /// Перезапуск после смены настроек монитора.
+    func restartStats() {
+        stats.stop()
+        updateStats()
+    }
 
     func focus() { view.window?.makeFirstResponder(view) }
 

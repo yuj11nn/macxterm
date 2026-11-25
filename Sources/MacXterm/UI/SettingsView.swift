@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.fontSize) private var fontSize = 13.0
     @AppStorage(Prefs.copyOnSelect) private var copyOnSelect = false
     @AppStorage(Prefs.pasteOnRightClick) private var pasteOnRightClick = false
+    @AppStorage(Prefs.statsEnabledKey) private var statsEnabled = true
+    @AppStorage(Prefs.statsIntervalKey) private var statsInterval = 3.0
     @State private var fonts = Prefs.monospacedFonts
 
     var body: some View {
@@ -24,6 +26,13 @@ struct SettingsView: View {
             Section("Мышь") {
                 Toggle("Копировать выделенный текст", isOn: $copyOnSelect)
                 Toggle("Вставка правой кнопкой", isOn: $pasteOnRightClick)
+            }
+            Section("Монитор сервера") {
+                Toggle("Показывать метрики в строке состояния", isOn: $statsEnabled)
+                Picker("Интервал опроса", selection: $statsInterval) {
+                    ForEach([1.0, 2, 3, 5, 10, 30], id: \.self) { Text("\(Int($0)) с").tag($0) }
+                }
+                .disabled(!statsEnabled)
             }
         }
         .formStyle(.grouped)

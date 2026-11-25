@@ -9,7 +9,9 @@ final class AppState {
     let transfers = TransferQueue()
     let editors = RemoteEditWatcher()
     var tabs: [TerminalSession] = []
-    var activeTabID: UUID?
+    var activeTabID: UUID? {
+        didSet { for t in tabs { t.isActiveTab = t.id == activeTabID } }
+    }
 
     var showQuickConnect = false
     var editorTarget: EditorTarget?
@@ -85,6 +87,8 @@ final class AppState {
     // MARK: - Settings
 
     func applyTerminalSettings() { tabs.forEach { $0.applySettings() } }
+
+    func applyStatsSettings() { tabs.forEach { $0.restartStats() } }
 
     func changeFontSize(_ delta: Double) {
         let d = UserDefaults.standard

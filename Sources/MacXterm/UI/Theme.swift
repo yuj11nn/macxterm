@@ -83,12 +83,15 @@ enum Prefs {
     static let copyOnSelect = "copyOnSelect"
     static let pasteOnRightClick = "pasteOnRightClick"
     static let sftpHeight = "sftpHeight"
+    static let statsEnabledKey = "statsEnabled"
+    static let statsIntervalKey = "statsInterval"
     static let systemMono = "SF Mono"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
             fontName: systemMono, fontSize: 13.0, theme: TerminalTheme.defaultDark.rawValue,
             copyOnSelect: false, pasteOnRightClick: false, sftpHeight: 300.0,
+            statsEnabledKey: true, statsIntervalKey: 3.0,
         ])
     }
 
@@ -99,6 +102,9 @@ enum Prefs {
         if name != systemMono, let f = NSFont(name: name, size: size) { return f }
         return .monospacedSystemFont(ofSize: size, weight: .regular)
     }
+
+    static var statsEnabled: Bool { UserDefaults.standard.bool(forKey: statsEnabledKey) }
+    static var statsInterval: Double { max(1, min(60, UserDefaults.standard.double(forKey: statsIntervalKey))) }
 
     static var currentTheme: TerminalTheme {
         TerminalTheme(rawValue: UserDefaults.standard.string(forKey: theme) ?? "") ?? .defaultDark
