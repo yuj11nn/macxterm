@@ -29,8 +29,6 @@ struct FileTableView: NSViewRepresentable {
         table.rowHeight = 22
         table.intercellSpacing = NSSize(width: 6, height: 0)
         table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
-        table.autosaveName = "MacXterm.SFTPTable"
-        table.autosaveTableColumns = true
 
         for col in FileTableCoordinator.Column.allCases {
             let tc = NSTableColumn(identifier: col.id)
@@ -38,7 +36,7 @@ struct FileTableView: NSViewRepresentable {
             tc.minWidth = col.minWidth
             tc.width = col.width
             tc.sortDescriptorPrototype = NSSortDescriptor(key: col.rawValue, ascending: true)
-            tc.isHidden = col.hiddenByDefault
+            tc.isHidden = c.userHidden.contains(col.rawValue)
             tc.headerCell.alignment = col.alignment
             if col == .name { tc.resizingMask = .autoresizingMask } else { tc.resizingMask = .userResizingMask }
             table.addTableColumn(tc)
@@ -67,6 +65,9 @@ struct FileTableView: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
+        scroll.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(c, selector: #selector(FileTableCoordinator.frameChanged),
+                                               name: NSView.frameDidChangeNotification, object: scroll)
         return scroll
     }
 
@@ -77,6 +78,7 @@ struct FileTableView: NSViewRepresentable {
         c.fs = fs
         c.onChmod = onChmod
         c.update(items: items, path: path)
+        DispatchQueue.main.async { c.adaptColumns() }
     }
 }
 
@@ -176,7 +178,7 @@ final class FileTableCoordinator: NSObject {
             }
         }
         var width: CGFloat {
-            switch self { case .name: 180; case .size: 62; case .mtime: 110; case .mode: 78; case .owner: 64 }
+            switch self { case .name: 180; case .size: 58; case .mtime: 84; case .mode: 78; case .owner: 64 }
         }
         var minWidth: CGFloat { self == .name ? 80 : 40 }
         var hiddenByDefault: Bool { self == .mode || self == .owner }
@@ -198,13 +200,53 @@ final class FileTableCoordinator: NSObject {
         return q
     }()
 
-    private static let dateFormatter: DateFormatter = {
+    private static let thisYearFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateStyle = .short
-        f.timeStyle = .short
-        f.doesRelativeDateFormatting = true
+        f.setLocalizedDateFormatFromTemplate("dMMM HH:mm")
         return f
     }()
+    private static let otherYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("ddMMyyyy")
+        return f
+    }()
+    private static let fullFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .full
+        f.timeStyle = .medium
+        return f
+    }()
+
+    static func shortDate(_ d: Date) -> String {
+        Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year)
+            ? thisYearFormatter.string(from: d) : otherYearFormatter.string(from: d)
+    }
+
+    /// Колонки, скрытые пользователем через меню заголовка.
+    var userHidden: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "sftpHiddenColumns") ?? ["mode", "owner"]) {
+        didSet { UserDefaults.standard.set(Array(userHidden), forKey: "sftpHiddenColumns"); adaptColumns() }
+    }
+
+    @objc func frameChanged() { adaptColumns() }
+
+    /// В узкой панели прячем сначала дату, потом размер — имени всегда хватает места.
+    func adaptColumns() {
+        guard let table, let width = table.enclosingScrollView?.frame.width, width > 0 else { return }
+        var autoHidden: Set<String> = []
+        if width < 260 { autoHidden.insert(Column.mtime.rawValue) }
+        if width < 190 { autoHidden.insert(Column.size.rawValue) }
+        var extra: CGFloat = 0
+        for col in [Column.size, .mtime, .mode, .owner] {
+            guard let tc = table.tableColumn(withIdentifier: col.id) else { continue }
+            var hide = userHidden.contains(col.rawValue) || autoHidden.contains(col.rawValue)
+            // Права и владелец показываются только если после них имени остаётся ≥ 140 pt.
+            if !hide && (col == .mode || col == .owner) && width - extra - tc.width < 140 + 120 { hide = true }
+            if tc.isHidden != hide { tc.isHidden = hide }
+            if !hide { extra += tc.width + 6 }
+        }
+        table.sizeLastColumnToFit()
+        table.sizeToFit()
+    }
 
     // MARK: Data
 
@@ -450,11 +492,15 @@ extension FileTableCoordinator: NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.stringValue = item.name
             cell.textField?.isEditable = false
             cell.imageView?.image = Self.icon(for: item)
-            cell.toolTip = item.kind == .link ? "\(item.name) → ссылка" : nil
+            var tip = item.name + (item.kind == .link ? "  (ссылка)" : "")
+            if !item.isDir { tip += "\n" + ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file) }
+            if let m = item.mtime { tip += "\n" + Self.fullFormatter.string(from: m) }
+            tip += "\n" + item.permString + "  " + item.owner
+            cell.toolTip = tip
         case .size:
             cell.textField?.stringValue = item.isDir ? "—" : ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file)
         case .mtime:
-            cell.textField?.stringValue = item.mtime.map { Self.dateFormatter.string(from: $0) } ?? ""
+            cell.textField?.stringValue = item.mtime.map(Self.shortDate) ?? ""
         case .mode:
             cell.textField?.stringValue = (item.isDir ? "d" : "-") + item.permString
         case .owner:
@@ -751,8 +797,12 @@ extension FileTableCoordinator: NSMenuDelegate {
     private func buildHeaderMenu(_ menu: NSMenu) {
         guard let table else { return }
         for col in table.tableColumns where col.identifier != Column.name.id {
-            let mi = ClosureMenuItem(title: col.title) { col.isHidden.toggle() }
-            mi.state = col.isHidden ? .off : .on
+            let key = col.identifier.rawValue
+            let mi = ClosureMenuItem(title: col.title) { [weak self] in
+                guard let self else { return }
+                if self.userHidden.contains(key) { self.userHidden.remove(key) } else { self.userHidden.insert(key) }
+            }
+            mi.state = userHidden.contains(key) ? .off : .on
             menu.addItem(mi)
         }
     }
