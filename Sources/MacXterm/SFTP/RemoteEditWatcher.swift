@@ -24,10 +24,10 @@ final class RemoteEditWatcher {
     var onError: ((String) -> Void)?
     private var watches: [String: Watch] = [:]
 
-    func open(_ s: Session, item: FileItem) {
+    func open(_ s: Session, item: FileItem, with appURL: URL? = nil) {
         let key = s.id.uuidString + "|" + s.destination + "|" + item.path
         if let w = watches[key], FileManager.default.fileExists(atPath: w.local.path) {
-            openInEditor(w.local)
+            openInEditor(w.local, with: appURL)
             return
         }
         let dir = TempDirs.make("edit")
@@ -39,15 +39,19 @@ final class RemoteEditWatcher {
                 w.lastMod = Self.mtime(url)
                 self.watches[key] = w
                 self.startWatching(w, dir: dir)
-                self.openInEditor(url)
+                self.openInEditor(url, with: appURL)
             case .failure(let e):
                 if !(e is CancellationError) { self.onError?("Не удалось открыть \(item.name): \(e.localizedDescription)") }
             }
         }
     }
 
-    private func openInEditor(_ url: URL) {
+    private func openInEditor(_ url: URL, with appURL: URL? = nil) {
         let ws = NSWorkspace.shared
+        if let appURL {
+            ws.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
         var app = ws.urlForApplication(toOpen: url)
         let unsafe = ["com.apple.Terminal", "com.googlecode.iterm2", "com.apple.ScriptEditor2", "com.apple.installer"]
         if let a = app, let bid = Bundle(url: a)?.bundleIdentifier,

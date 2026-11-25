@@ -13,7 +13,7 @@ struct ContentView: View {
         @Bindable var app = app
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 230, ideal: 280, max: 460)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 320, max: 720)
         } detail: {
             VStack(spacing: 0) {
                 if !app.tabs.isEmpty { TabBar() }

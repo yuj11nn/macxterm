@@ -3,6 +3,7 @@ import SwiftUI
 /// Сайдбар: сессии сверху, SFTP снизу; высота SFTP-части регулируется и запоминается.
 struct SidebarView: View {
     @AppStorage(Prefs.sftpHeight) private var sftpHeight = 300.0
+    @AppStorage("sftpMaximized") private var maximized = false
     @State private var dragStart: Double?
 
     var body: some View {
@@ -10,6 +11,9 @@ struct SidebarView: View {
             let maxH = max(140, geo.size.height - 160)
             let h = min(max(sftpHeight, 120), maxH)
             VStack(spacing: 0) {
+                if maximized {
+                    SFTPPanel().frame(maxHeight: .infinity)
+                } else {
                 SessionsSidebar().frame(maxHeight: .infinity)
                 SplitHandle()
                     .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
@@ -19,6 +23,7 @@ struct SidebarView: View {
                         }
                         .onEnded { _ in dragStart = nil })
                 SFTPPanel().frame(height: h)
+                }
             }
         }
     }
