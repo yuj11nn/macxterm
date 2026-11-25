@@ -173,6 +173,7 @@ final class DataBox: @unchecked Sendable {
     private var data = Data()
     private let lock = NSLock()
     func append(_ d: Data) { lock.lock(); data.append(d); lock.unlock() }
+    var isEmpty: Bool { lock.lock(); defer { lock.unlock() }; return data.isEmpty }
     var string: String {
         lock.lock(); defer { lock.unlock() }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)

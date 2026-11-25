@@ -51,6 +51,12 @@ private struct TabItem: View {
         HStack(spacing: 6) {
             Circle().fill(dotColor).frame(width: 7, height: 7)
                 .shadow(color: dotColor.opacity(0.6), radius: tab.state == .connected ? 2 : 0)
+            if tab.agentWorking > 0 {
+                Image(systemName: "sparkles").font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.purple)
+                    .symbolEffect(.pulse)
+                    .help("Сейчас здесь работает агент")
+            }
             if app.multiExec && tab.state == .connected {
                 Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.orange).help("Multi-exec: вкладка получает ввод")

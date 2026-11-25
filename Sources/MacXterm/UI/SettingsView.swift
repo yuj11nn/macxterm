@@ -8,6 +8,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.pasteOnRightClick) private var pasteOnRightClick = false
     @AppStorage(Prefs.statsEnabledKey) private var statsEnabled = true
     @AppStorage(Prefs.statsIntervalKey) private var statsInterval = 3.0
+    @AppStorage(AgentController.enabledKey) private var agentEnabled = false
+    @AppStorage(AgentController.confirmKey) private var agentConfirm = true
     @State private var fonts = Prefs.monospacedFonts
 
     var body: some View {
@@ -33,6 +35,17 @@ struct SettingsView: View {
                     ForEach([1.0, 2, 3, 5, 10, 30], id: \.self) { Text("\(Int($0)) с").tag($0) }
                 }
                 .disabled(!statsEnabled)
+            }
+            Section {
+                Toggle("Разрешить ИИ-агентам (MCP) работать с серверами", isOn: $agentEnabled)
+                Toggle("Спрашивать перед командами и записью файлов", isOn: $agentConfirm)
+                    .disabled(!agentEnabled)
+                AgentSetupCard().disabled(!agentEnabled)
+            } header: {
+                Text("Агент")
+            } footer: {
+                Text("Любой MCP-клиент (Claude, Cursor, Codex, VS Code и другие) подключается к MacXterm локально и работает с сохранёнными сессиями. Пароли остаются в Keychain.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

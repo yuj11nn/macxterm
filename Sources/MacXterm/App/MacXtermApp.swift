@@ -7,7 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Пока подключён MCP-клиент (ИИ-агент), приложение работает и без окна.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !AgentController.hasClients }
     func applicationWillTerminate(_ notification: Notification) { onTerminate?() }
 }
 
@@ -72,6 +73,8 @@ struct AppCommands: Commands {
                 .keyboardShortcut("2", modifiers: .control)
             Button("Команды") { app.sidebarTab = .commands }
                 .keyboardShortcut("3", modifiers: .control)
+            Button("Агент") { app.sidebarTab = .agent }
+                .keyboardShortcut("4", modifiers: .control)
             Divider()
         }
         CommandMenu("Терминал") {

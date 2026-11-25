@@ -11,6 +11,8 @@ final class TerminalSession: Identifiable {
     private(set) var session: Session
     var state: ConnectionState = .connecting { didSet { if oldValue != state { updateStats() } } }
     /// Вкладка выбрана в окне — только для неё работает монитор сервера.
+    /// Сколько действий агента сейчас идёт в этой вкладке (для индикатора).
+    var agentWorking = 0
     var isActiveTab = false { didSet { if oldValue != isActiveTab { updateStats() } } }
     var title: String
     /// Имя, заданное пользователем («Переименовать»); перекрывает заголовок от терминала.

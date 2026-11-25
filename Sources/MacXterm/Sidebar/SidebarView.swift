@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case sessions, sftp, commands
+    case sessions, sftp, commands, agent
     var id: String { rawValue }
     var title: String {
-        switch self { case .sessions: "Сессии"; case .sftp: "SFTP"; case .commands: "Команды" }
+        switch self { case .sessions: "Сессии"; case .sftp: "SFTP"; case .commands: "Команды"; case .agent: "Агент" }
     }
     var icon: String {
-        switch self { case .sessions: "server.rack"; case .sftp: "folder"; case .commands: "terminal" }
+        switch self { case .sessions: "server.rack"; case .sftp: "folder"; case .commands: "terminal"; case .agent: "sparkles" }
     }
 }
 
@@ -28,6 +28,8 @@ struct SidebarView: View {
                     .allowsHitTesting(app.sidebarTab == .sftp)
                 CommandsPanel().opacity(app.sidebarTab == .commands ? 1 : 0)
                     .allowsHitTesting(app.sidebarTab == .commands)
+                AgentPanel().opacity(app.sidebarTab == .agent ? 1 : 0)
+                    .allowsHitTesting(app.sidebarTab == .agent)
             }
             .transaction { $0.animation = nil } // без «наплыва» панелей друг на друга
         }
@@ -37,6 +39,8 @@ struct SidebarView: View {
 private struct SidebarSwitcher: View {
     @Environment(AppState.self) private var app
     @Namespace private var ns
+    /// Подпись только у выбранной вкладки — четыре вкладки помещаются в любой ширине сайдбара.
+    private let compact = true
 
     var body: some View {
         HStack(spacing: 2) {
@@ -47,13 +51,14 @@ private struct SidebarSwitcher: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: t.icon).font(.system(size: 11, weight: .medium))
-                        Text(t.title).font(.system(size: 12, weight: on ? .semibold : .regular))
-                        if t == .sftp, let tab = app.activeTab, tab.state == .connected {
-                            Circle().fill(.green).frame(width: 5, height: 5)
+                        if on || !compact {
+                            Text(t.title).font(.system(size: 12, weight: on ? .semibold : .regular))
+                                .lineLimit(1).fixedSize()
                         }
+                        badge(t)
                     }
                     .foregroundStyle(on ? Color.primary : Color.secondary)
-                    .frame(maxWidth: .infinity).frame(height: 24)
+                    .frame(maxWidth: on || !compact ? .infinity : 40).frame(height: 24)
                     .background {
                         if on {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -66,6 +71,7 @@ private struct SidebarSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help(help(t))
+                .accessibilityLabel(t.title)
             }
         }
         .padding(2)
@@ -73,11 +79,21 @@ private struct SidebarSwitcher: View {
         .padding(.horizontal, 8).padding(.vertical, 6)
     }
 
+    @ViewBuilder
+    private func badge(_ t: SidebarTab) -> some View {
+        if t == .sftp, let tab = app.activeTab, tab.state == .connected {
+            Circle().fill(.green).frame(width: 5, height: 5)
+        } else if t == .agent, app.agent.clientCount > 0 {
+            Circle().fill(.purple).frame(width: 5, height: 5)
+        }
+    }
+
     private func help(_ t: SidebarTab) -> String {
         switch t {
         case .sessions: "Сохранённые сессии (⌃1)"
         case .sftp: "Файлы сервера активной вкладки (⌃2)"
         case .commands: "Популярные и свои команды (⌃3)"
+        case .agent: "ИИ-агенты через MCP (⌃4)"
         }
     }
 }

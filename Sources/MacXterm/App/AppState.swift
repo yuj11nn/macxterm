@@ -10,6 +10,8 @@ final class AppState {
     let transfers = TransferQueue()
     let editors = RemoteEditWatcher()
     let snippets = SnippetStore()
+    let agent = AgentController()
+    @ObservationIgnored private(set) var mcp: MCPServer?
     var tabs: [TerminalSession] = []
     var activeTabID: UUID? {
         didSet { for t in tabs { t.isActiveTab = t.id == activeTabID } }
@@ -37,6 +39,10 @@ final class AppState {
         editors.onUploaded = { [weak self] name in self?.showToast("Загружено: \(name)", icon: "checkmark.icloud") }
         editors.onError = { [weak self] msg in self?.showToast(msg, icon: "exclamationmark.triangle", isError: true) }
         transfers.onError = { [weak self] msg in self?.showToast(msg, icon: "exclamationmark.triangle", isError: true) }
+        agent.app = self
+        let server = MCPServer(agent: agent)
+        server.start()
+        mcp = server
     }
 
     var activeTab: TerminalSession? { tabs.first { $0.id == activeTabID } }
