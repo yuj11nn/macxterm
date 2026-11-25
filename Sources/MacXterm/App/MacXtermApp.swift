@@ -53,14 +53,36 @@ struct AppCommands: Commands {
                 .keyboardShortcut("w")
         }
         CommandGroup(after: .textEditing) {
-            Button("Найти сессию") { app.focusSearch += 1 }
+            Button("Найти в терминале…") { app.find() }
                 .keyboardShortcut("f")
+            Button("Найти далее") { app.activeTab?.find(.next) }
+                .keyboardShortcut("g")
+            Button("Найти ранее") { app.activeTab?.find(.previous) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+            Divider()
+            Button("Найти сессию") { app.focusSessionSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+            Button("Найти команду") { app.showCommands() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+        }
+        CommandGroup(after: .sidebar) {
+            Button("Сессии") { app.sidebarTab = .sessions }
+                .keyboardShortcut("1", modifiers: .control)
+            Button("SFTP") { app.sidebarTab = .sftp }
+                .keyboardShortcut("2", modifiers: .control)
+            Button("Команды") { app.sidebarTab = .commands }
+                .keyboardShortcut("3", modifiers: .control)
+            Divider()
         }
         CommandMenu("Терминал") {
             Button("Очистить") { app.activeTab?.clear() }
                 .keyboardShortcut("k")
             Button("Переподключить") { app.activeTab?.reconnect() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Переподключить все разорванные") { app.reconnectAll() }
+            Button("Сохранить вывод в файл…") { app.saveOutput() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(app.activeTab == nil)
             Divider()
             Button("Увеличить шрифт") { app.changeFontSize(1) }
                 .keyboardShortcut("+")
@@ -72,6 +94,14 @@ struct AppCommands: Commands {
                 .keyboardShortcut("0")
         }
         CommandMenu("Вкладки") {
+            Toggle("Multi-exec: ввод во все вкладки", isOn: Binding(get: { app.multiExec }, set: { app.multiExec = $0 }))
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+            Button("Переименовать вкладку…") { app.renamingTab = app.activeTab }
+                .disabled(app.activeTab == nil)
+            Button("Дублировать вкладку") { if let t = app.activeTab { app.duplicateTab(t) } }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(app.activeTab == nil)
+            Divider()
             Button("Следующая вкладка") { app.selectAdjacentTab(1) }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
             Button("Предыдущая вкладка") { app.selectAdjacentTab(-1) }

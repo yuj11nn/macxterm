@@ -18,6 +18,7 @@ struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 if !app.tabs.isEmpty { TabBar() }
+                if app.multiExec { MultiExecBanner() }
                 ZStack {
                     if let tab = app.activeTab {
                         Color(nsColor: Prefs.currentTheme.background)
@@ -40,6 +41,7 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { ToastView() }
         .sheet(isPresented: $app.showQuickConnect) { QuickConnectSheet() }
         .sheet(item: $app.editorTarget) { t in SessionEditor(target: t) }
+        .sheet(item: $app.renamingTab) { t in RenameTabSheet(tab: t) }
         .onChange(of: theme) { app.applyTerminalSettings() }
         .onChange(of: fontName) { app.applyTerminalSettings() }
         .onChange(of: fontSize) { app.applyTerminalSettings() }
@@ -87,5 +89,54 @@ private struct EmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+    }
+}
+
+/// Плашка включённого multi-exec — чтобы не забыть, что ввод уходит во все вкладки.
+private struct MultiExecBanner: View {
+    @Environment(AppState.self) private var app
+    var body: some View {
+        let n = app.tabs.filter { $0.state == .connected }.count
+        HStack(spacing: 8) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+            Text("Multi-exec: ввод отправляется во все подключённые вкладки (\(n))")
+                .font(.system(size: 12, weight: .medium))
+            Spacer()
+            Button("Выключить  ⇧⌘I") { app.multiExec = false }
+                .buttonStyle(.borderless).font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12).frame(height: 26)
+        .background(Color.orange.gradient)
+    }
+}
+
+private struct RenameTabSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let tab: TerminalSession
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Имя вкладки").font(.headline)
+            TextField(tab.title, text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+            Text("Пустое имя — заголовок от сервера.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Сохранить", action: save).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 340)
+        .onAppear { name = tab.customTitle ?? "" }
+    }
+
+    private func save() {
+        let t = name.trimmingCharacters(in: .whitespaces)
+        tab.customTitle = t.isEmpty ? nil : t
+        dismiss()
     }
 }

@@ -7,9 +7,12 @@ struct StatsBar: View {
     var body: some View {
         HStack(spacing: 8) {
             if let tab {
-                ConnectionLabel(tab: tab)
-                Spacer(minLength: 8)
-                if tab.state == .connected { MetricsRow(poller: tab.stats) }
+                ConnectionLabel(tab: tab).fixedSize().layoutPriority(1)
+                Group {
+                    if tab.state == .connected { MetricsRow(poller: tab.stats) } else { Color.clear }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .clipped()
             } else {
                 Text("Не подключено").font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
@@ -66,42 +69,59 @@ private struct MetricsRow: View {
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .help("Сервер не отдаёт /proc (не Linux) — метрики недоступны")
         } else if let st = poller.stats {
-            HStack(spacing: 2) {
-                chip(.cpu, help: "Загрузка процессора") {
-                    let cpu = st.cpu ?? 0
-                    Image(systemName: "cpu").foregroundStyle(.secondary)
-                    Sparkline(values: poller.cpuHistory, color: .load(cpu)).frame(width: 60, height: 14)
-                    Text(st.cpu.map { String(format: "%3.0f%%", $0) } ?? " —").monospacedDigit()
-                        .frame(minWidth: 30, alignment: .trailing)
-                }
-                chip(.mem, help: "Память: занято / всего") {
-                    Image(systemName: "memorychip").foregroundStyle(.secondary)
-                    Text("\(Fmt.bytes(st.memUsed)) / \(Fmt.bytes(st.memTotal))").monospacedDigit()
-                        .foregroundStyle(st.memPercent >= 90 ? Color.red : Color.primary)
-                }
-                chip(.disk, help: "Заполнение корневого раздела") {
-                    Image(systemName: "internaldrive").foregroundStyle(.secondary)
-                    Text("\(st.diskPercent)%").monospacedDigit()
-                        .foregroundStyle(st.diskPercent >= 90 ? Color.red : Color.primary)
-                }
+            // Если окно узкое — менее важные метрики прячутся (всё равно доступны в поповерах).
+            ViewThatFits(in: .horizontal) {
+                metrics(st, level: 0)
+                metrics(st, level: 1)
+                metrics(st, level: 2)
+                metrics(st, level: 3)
+            }
+        } else {
+            ProgressView().controlSize(.mini)
+        }
+    }
+
+    /// level 0 — всё; 1 — без uptime; 2 — ещё без load; 3 — только CPU, RAM, диск.
+    private func metrics(_ st: ServerStats, level: Int) -> some View {
+        HStack(spacing: 2) {
+            chip(.cpu, help: "Загрузка процессора") {
+                let cpu = st.cpu ?? 0
+                Image(systemName: "cpu").foregroundStyle(.secondary)
+                Sparkline(values: poller.cpuHistory, color: .load(cpu)).frame(width: level >= 3 ? 36 : 60, height: 14)
+                Text(st.cpu.map { String(format: "%3.0f%%", $0) } ?? " —").monospacedDigit()
+                    .frame(minWidth: 30, alignment: .trailing)
+            }
+            chip(.mem, help: "Память: занято / всего") {
+                Image(systemName: "memorychip").foregroundStyle(.secondary)
+                Text(level >= 3 ? String(format: "%.0f%%", st.memPercent) : "\(Fmt.bytes(st.memUsed)) / \(Fmt.bytes(st.memTotal))").monospacedDigit()
+                    .foregroundStyle(st.memPercent >= 90 ? Color.red : Color.primary)
+            }
+            chip(.disk, help: "Заполнение корневого раздела") {
+                Image(systemName: "internaldrive").foregroundStyle(.secondary)
+                Text("\(st.diskPercent)%").monospacedDigit()
+                    .foregroundStyle(st.diskPercent >= 90 ? Color.red : Color.primary)
+            }
+            if level < 2 {
                 chip(.load, help: "Load average (1, 5, 15 мин)") {
                     Image(systemName: "gauge.with.dots.needle.33percent").foregroundStyle(.secondary)
                     Text(st.load.map { String(format: "%.2f", $0) }.joined(separator: " ")).monospacedDigit()
                         .foregroundStyle((st.load.first ?? 0) > Double(st.cores) ? Color.orange : Color.primary)
                 }
+            }
+            if level < 3 {
                 chip(.net, help: "Сеть: приём / передача") {
                     Text("↓ \(Fmt.rate(st.rxRate))  ↑ \(Fmt.rate(st.txRate))").monospacedDigit()
                 }
+            }
+            if level < 1 {
                 chip(.uptime, help: "Время работы сервера") {
                     Image(systemName: "clock").foregroundStyle(.secondary)
                     Text(Fmt.uptime(st.uptime))
                 }
             }
-            .font(.system(size: 11))
-            .fixedSize()
-        } else {
-            ProgressView().controlSize(.mini)
         }
+        .font(.system(size: 11))
+        .fixedSize()
     }
 
     private func chip<C: View>(_ m: Metric, help: String, @ViewBuilder _ content: () -> C) -> some View {

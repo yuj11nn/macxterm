@@ -13,13 +13,25 @@ final class TerminalSession: Identifiable {
     /// Вкладка выбрана в окне — только для неё работает монитор сервера.
     var isActiveTab = false { didSet { if oldValue != isActiveTab { updateStats() } } }
     var title: String
+    /// Имя, заданное пользователем («Переименовать»); перекрывает заголовок от терминала.
+    var customTitle: String?
+    /// Цвет вкладки, если задан вручную; иначе цвет сессии.
+    var tabColor: String?
     var exitCode: Int32?
     @ObservationIgnored let view: MXTerminalView
     let fs: RemoteFS
     let stats: StatsPoller
     @ObservationIgnored private var masterTask: Task<Void, Never>?
     @ObservationIgnored private var osc7Installed = false
+    @ObservationIgnored private var exitWatcher: DispatchSourceProcess?
     @ObservationIgnored var onConnected: (() -> Void)?
+    /// Ввод пользователя (для multi-exec).
+    @ObservationIgnored var onInput: ((ArraySlice<UInt8>) -> Void)?
+    /// Соединение закрылось само (не через закрытие вкладки).
+    @ObservationIgnored var onDisconnected: (() -> Void)?
+
+    var displayTitle: String { customTitle ?? title }
+    var colorName: String? { tabColor ?? session.color }
 
     init(session: Session) {
         self.session = session
@@ -41,6 +53,7 @@ final class TerminalSession: Identifiable {
         let env = SSHCommandBuilder.environment(session).map { "\($0.key)=\($0.value)" }
         view.startProcess(executable: SSHCommandBuilder.ssh, args: SSHCommandBuilder.terminalArgs(session),
                           environment: env, execName: "ssh", currentDirectory: NSHomeDirectory())
+        watchExit()
         masterTask?.cancel()
         let s = session
         masterTask = Task { [weak self] in
@@ -64,6 +77,8 @@ final class TerminalSession: Identifiable {
 
     /// Закрывает процесс; мастер гасим, только если его больше никто не использует.
     func close(masterStillUsed: Bool) {
+        exitWatcher?.cancel()
+        exitWatcher = nil
         masterTask?.cancel()
         stats.stop()
         fs.shutdown()
@@ -73,6 +88,65 @@ final class TerminalSession: Identifiable {
     }
 
     func send(_ text: String) { view.send(txt: text) }
+
+    /// SwiftTerm 1.11.2 теряет processTerminated, если EOF из pty приходит раньше события выхода
+    /// (так бывает при обрыве сети или kill). Следим за процессом ssh сами.
+    private func watchExit() {
+        exitWatcher?.cancel()
+        let pid = view.process.shellPid
+        guard pid > 0 else { return }
+        let src = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
+        src.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                var status: Int32 = 0
+                let r = waitpid(pid, &status, WNOHANG)
+                self?.handleExit(status: r == pid ? status : nil)
+            }
+        }
+        src.activate()
+        exitWatcher = src
+    }
+
+    private func handleExit(status: Int32?) {
+        guard state != .disconnected else { return }
+        exitWatcher?.cancel()
+        exitWatcher = nil
+        masterTask?.cancel()
+        // Сырой wait-статус: код выхода в старшем байте, номер сигнала — в младших битах.
+        exitCode = status.map { s in (s & 0x7F) != 0 ? 128 + (s & 0x7F) : (s >> 8) & 0xFF }
+        state = .disconnected
+        fs.connectionLost()
+        onDisconnected?()
+    }
+
+    /// Служебная отправка, которая не размножается в multi-exec.
+    func sendInternal(_ text: String) {
+        view.suppressBroadcast = true
+        view.send(txt: text)
+        view.suppressBroadcast = false
+    }
+
+    /// Ввод с другой вкладки в режиме multi-exec.
+    func receiveBroadcast(_ data: ArraySlice<UInt8>) {
+        guard state == .connected else { return }
+        view.sendDirect(data)
+    }
+
+    // MARK: - Поиск и сохранение вывода
+
+    func find(_ action: NSFindPanelAction) {
+        let item = NSMenuItem()
+        item.tag = Int(action.rawValue)
+        view.performFindPanelAction(item)
+    }
+
+    /// Весь буфер (с прокруткой) как текст, без хвостовых пустых строк.
+    func outputText() -> String {
+        let data = view.getTerminal().getBufferAsData(kind: .normal)
+        var lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n")
+        while let l = lines.last, l.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+        return lines.joined(separator: "\n") + "\n"
+    }
 
     /// Монитор работает только пока вкладка активна и подключена; новое подключение сбрасывает историю.
     func updateStats() {
@@ -94,7 +168,7 @@ final class TerminalSession: Identifiable {
     func clear() {
         view.getTerminal().resetToInitialState()
         view.needsDisplay = true
-        if state == .connected || state == .connecting { send("\u{0C}") }
+        if state == .connected || state == .connecting { sendInternal("\u{0C}") }
     }
 
     func applySettings() {
@@ -118,7 +192,7 @@ final class TerminalSession: Identifiable {
         guard !osc7Installed, state == .connected else { return }
         osc7Installed = true
         let hook = #" __mx7(){ printf '\033]7;file://%s%s\007' "${HOSTNAME:-$HOST}" "$PWD"; }; if [ -n "$ZSH_VERSION" ]; then precmd_functions+=(__mx7); elif [ -n "$BASH_VERSION" ]; then PROMPT_COMMAND="__mx7${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; fi; clear"#
-        send(hook + "\r")
+        sendInternal(hook + "\r")
     }
 
     static func path(fromOSC7 s: String) -> String? {
@@ -134,7 +208,7 @@ final class TerminalSession: Identifiable {
     }
 
     func cdInTerminal(_ path: String) {
-        send(" cd \(SSHCommandBuilder.quote(path))\r")
+        sendInternal(" cd \(SSHCommandBuilder.quote(path))\r")
         focus()
     }
 }
@@ -153,10 +227,7 @@ extension TerminalSession: @preconcurrency LocalProcessTerminalViewDelegate {
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
-        masterTask?.cancel()
-        self.exitCode = exitCode.map { $0 > 255 ? ($0 >> 8) & 0xFF : $0 }
-        state = .disconnected
-        fs.connectionLost()
+        handleExit(status: exitCode)
     }
 }
 
@@ -165,6 +236,7 @@ final class MXTerminalView: LocalProcessTerminalView {
     weak var owner: TerminalSession?
     var copyOnSelect = false
     var pasteOnRightClick = false
+    var suppressBroadcast = false
 
     private var mouseUpMonitor: Any?
 
@@ -197,6 +269,9 @@ final class MXTerminalView: LocalProcessTerminalView {
             }
             return
         }
+        if !suppressBroadcast { owner?.onInput?(data) }
         super.send(source: source, data: data)
     }
+
+    func sendDirect(_ data: ArraySlice<UInt8>) { super.send(source: self, data: data) }
 }

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// SFTP-панель активной вкладки (нижняя часть сайдбара).
+/// SFTP-панель активной вкладки (вкладка «SFTP» сайдбара).
 struct SFTPPanel: View {
     @Environment(AppState.self) private var app
 
@@ -28,7 +28,6 @@ func placeholder(_ text: String, icon: String) -> some View {
 
 private struct FileBrowser: View {
     @Environment(AppState.self) private var app
-    @AppStorage("sftpMaximized") private var maximized = false
     let tab: TerminalSession
     @Bindable var fs: RemoteFS
     @State private var editingPath = false
@@ -76,10 +75,6 @@ private struct FileBrowser: View {
             .disabled(!ready)
             navButton("pencil.line", "Ввести путь") { beginEditPath() }.disabled(!ready)
             navButton(fs.isLoading ? "hourglass" : "arrow.clockwise", "Обновить") { fs.refresh() }.disabled(!ready)
-            navButton(maximized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                      maximized ? "Свернуть панель" : "Развернуть панель на весь сайдбар") {
-                withAnimation(.easeInOut(duration: 0.2)) { maximized.toggle() }
-            }
         }
         .padding(.horizontal, 5).padding(.vertical, 5)
     }

@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import UserNotifications
 
 /// Корневое состояние окна: хранилище, вкладки, очередь передач, тосты.
 @MainActor @Observable
@@ -8,12 +9,18 @@ final class AppState {
     let store = SessionStore()
     let transfers = TransferQueue()
     let editors = RemoteEditWatcher()
+    let snippets = SnippetStore()
     var tabs: [TerminalSession] = []
     var activeTabID: UUID? {
         didSet { for t in tabs { t.isActiveTab = t.id == activeTabID } }
     }
 
     var showQuickConnect = false
+    var sidebarTab: SidebarTab = .sessions
+    /// Ввод с клавиатуры уходит во все подключённые вкладки.
+    var multiExec = false
+    var focusCommands = 0
+    var renamingTab: TerminalSession?
     var editorTarget: EditorTarget?
     var focusSearch = 0
     var toast: Toast?
@@ -39,8 +46,17 @@ final class AppState {
     func connect(_ s: Session) {
         if store.session(s.id) != nil { store.touch(s.id) }
         let t = TerminalSession(session: s)
+        t.onInput = { [weak self, weak t] data in
+            guard let self, let t, self.multiExec else { return }
+            for other in self.tabs where other !== t { other.receiveBroadcast(data) }
+        }
+        t.onDisconnected = { [weak self, weak t] in
+            guard let self, let t else { return }
+            self.connectionLost(t)
+        }
         tabs.append(t)
         activeTabID = t.id
+        sidebarTab = .sftp
         t.start()
     }
 
@@ -56,6 +72,10 @@ final class AppState {
         tabs.remove(at: idx)
         if activeTabID == id {
             activeTabID = tabs.isEmpty ? nil : tabs[min(idx, tabs.count - 1)].id
+        }
+        if tabs.isEmpty {
+            multiExec = false
+            if sidebarTab == .sftp { sidebarTab = .sessions }
         }
     }
 
@@ -79,9 +99,92 @@ final class AppState {
         tabs.insert(t, at: min(index, tabs.count))
     }
 
+    func closeOtherTabs(_ keep: UUID) {
+        for t in tabs where t.id != keep { closeTab(t.id) }
+    }
+
     func closeAll() {
         for t in tabs { t.close(masterStillUsed: false) }
         tabs.removeAll()
+    }
+
+    func duplicateTab(_ t: TerminalSession) {
+        connect(t.session)
+        if let n = tabs.last { n.tabColor = t.tabColor }
+    }
+
+    func reconnectAll() {
+        for t in tabs where t.state == .disconnected { t.reconnect() }
+    }
+
+    func focusSessionSearch() {
+        sidebarTab = .sessions
+        focusSearch += 1
+    }
+
+    func showCommands() {
+        sidebarTab = .commands
+        focusCommands += 1
+    }
+
+    // MARK: - Terminal: поиск, вывод, команды
+
+    /// ⌘F: поиск по выводу терминала; без вкладок — поиск сессий.
+    func find() {
+        if let t = activeTab { t.find(.showFindPanel) } else { focusSessionSearch() }
+    }
+
+    func saveOutput() {
+        guard let t = activeTab else { return }
+        let panel = NSSavePanel()
+        let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")
+        panel.nameFieldStringValue = "\(t.session.displayName) \(stamp).log"
+        panel.allowedContentTypes = [.plainText, .log]
+        panel.allowsOtherFileTypes = true
+        let text = t.outputText()
+        panel.begin { [weak self] resp in
+            guard resp == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated {
+                do {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    self?.showToast("Вывод сохранён: \(url.lastPathComponent)", icon: "square.and.arrow.down")
+                } catch {
+                    self?.showToast(error.localizedDescription, icon: "exclamationmark.triangle", isError: true)
+                }
+            }
+        }
+    }
+
+    func useSnippet(_ s: Snippet, execute: Bool) {
+        guard let t = activeTab, t.state == .connected else { return }
+        snippets.markUsed(s)
+        let back = s.cursorBack
+        // Через send(), чтобы в multi-exec команда ушла во все вкладки.
+        t.send(s.plainCommand + (execute && back == 0 ? "\r" : ""))
+        if !execute, back > 0 { t.send(String(repeating: "\u{1B}[D", count: back)) }
+        t.focus()
+    }
+
+    // MARK: - Обрыв соединения
+
+    private func connectionLost(_ t: TerminalSession) {
+        guard tabs.contains(where: { $0 === t }), t.exitCode != 0 else { return }
+        let name = t.displayTitle
+        if NSApp.isActive {
+            if t.id != activeTabID { showToast("Соединение «\(name)» разорвано", icon: "bolt.slash", isError: true) }
+            return
+        }
+        NSApp.requestUserAttention(.informationalRequest)
+        let code = t.exitCode.map { " (код \($0))" } ?? ""
+        let dest = t.session.destination
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let c = UNMutableNotificationContent()
+            c.title = "Соединение разорвано"
+            c.body = "\(name) — \(dest)\(code)"
+            c.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+        }
     }
 
     // MARK: - Settings
