@@ -18,7 +18,7 @@ final class AgentController {
         var output = ""
     }
 
-    static let enabledKey = "agentEnabled"
+    nonisolated static let enabledKey = "agentEnabled"
     static let confirmKey = "agentConfirm"
     /// Есть подключённые MCP-клиенты: приложение не закрывается вместе с последним окном.
     static var hasClients = false

@@ -95,7 +95,7 @@ final class MCPServer {
 
     // MARK: - Описание инструментов
 
-    static let instructions = """
+    nonisolated static let instructions = """
     MacXterm is the user's SSH client on macOS. These tools act on the user's real servers through MacXterm, \
     reusing its saved sessions and already-authenticated connections (passwords come from the macOS Keychain; you never see them).
     Start with list_sessions. Use run_command for non-interactive shell commands (exact stdout/stderr and exit code). \
@@ -104,16 +104,16 @@ final class MCPServer {
     do not retry the same action without asking the user. Prefer safe, reversible commands and explain risky ones before running them.
     """
 
-    private static func schema(_ props: [String: [String: Any]], required: [String]) -> [String: Any] {
+    nonisolated private static func schema(_ props: [String: [String: Any]], required: [String]) -> [String: Any] {
         ["type": "object", "properties": props, "required": required]
     }
 
-    private static let sessionProp: [String: Any] = [
+    nonisolated(unsafe) private static let sessionProp: [String: Any] = [
         "type": "string",
         "description": "Saved session name, open tab name, or user@host[:port] for an ad-hoc connection",
     ]
 
-    static let tools: [[String: Any]] = [
+    nonisolated(unsafe) static let tools: [[String: Any]] = [
         [
             "name": "list_sessions",
             "title": "List sessions",
